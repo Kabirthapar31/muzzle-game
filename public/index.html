@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Muzzle — medical Wordle (prototype)</title>
+  <style>
+    :root{ --bg:#0f1724; --card:#0b1220; --muted:#94a3b8; --accent:#fbbf24; --green:#059669; --yellow:#f59e0b; --red:#ef4444; --cell:#0b1220; --glass: rgba(255,255,255,0.03); font-family: Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial; }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#041024 0%, #071028 100%);color:#e6eef8}
+    .container{max-width:960px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between}
+    h1{margin:0;font-size:20px;letter-spacing:1px}
+    .small{color:var(--muted);font-size:13px}
+    .card{background:var(--card);border-radius:12px;padding:18px;margin-top:18px;box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+    .grid{display:grid;grid-template-rows:repeat(6,1fr);gap:8px;max-width:420px;margin:18px auto}
+    .row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+    .cell{width:64px;height:64px;border-radius:8px;background:var(--cell);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px}
+    .cell.green{background:var(--green);color:#071022}
+    .cell.yellow{background:var(--yellow);color:#071022}
+    .cell.red{background:var(--red);color:#071022}
+    .cell.filled{border:2px solid rgba(255,255,255,0.04)}
+    .keyboard{max-width:520px;margin:16px auto;display:grid;gap:6px}
+    .keyrow{display:flex;justify-content:center;gap:6px}
+    .key{padding:10px 12px;border-radius:6px;background:var(--glass);min-width:38px;text-align:center;cursor:pointer;user-select:none}
+    .key.small{min-width:60px}
+    .key.green{background:var(--green);color:#071022}
+    .key.yellow{background:var(--yellow);color:#071022}
+    .key.red{background:var(--red);color:#071022}
+    .controls{display:flex;gap:10px;align-items:center}
+    .btn{padding:8px 12px;border-radius:8px;background:linear-gradient(180deg,#0f1724,#081022);border:1px solid rgba(255,255,255,0.04);cursor:pointer}
+    .btn.primary{background:linear-gradient(180deg,#fbbf24,#f59e0b);color:#071022}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.03)}
+    th{color:var(--muted);font-size:13px}
+    footer{margin-top:18px;color:var(--muted);font-size:12px;text-align:center}
+    @media (max-width:600px){
+      .cell{width:46px;height:46px;font-size:18px}
+      .grid{max-width:330px}
+      .key{padding:8px 10px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Muzzle <span class="small">— medical Wordle (prototype)</span></h1>
+        <div class="small">6 guesses • 5-letter medical words • hint reduces score</div>
+      </div>
+      <div class="controls">
+        <div id="userDisplay" class="small">Not signed in</div>
+        <button id="signInBtn" class="btn primary">Sign in with Google</button>
+        <button id="signOutBtn" class="btn" style="display:none">Sign out</button>
+      </div>
+    </header>
+
+    <section id="loginCard" class="card">
+      <strong>Prototype ready.</strong>
+      <p class="small">Sign in to save scores to the live leaderboard. Replace the WORDS array with your curated 5-letter medical words and hints before production.</p>
+    </section>
+
+    <section id="gameCard" class="card" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <strong>Play Muzzle</strong>
+          <div class="small">Guesses left: <span id="guessesLeft">6</span></div>
+        </div>
+        <div>
+          <button id="newGameBtn" class="btn">New Game</button>
+          <button id="hintBtn" class="btn">Hint</button>
+        </div>
+      </div>
+
+      <div id="grid" class="grid" aria-label="muzzle grid"></div>
+
+      <div class="keyboard" id="keyboard">
+        <div class="keyrow" id="row1"></div>
+        <div class="keyrow" id="row2"></div>
+        <div class="keyrow" id="row3"></div>
+      </div>
+
+      <div style="text-align:center;margin-top:12px">
+        <div id="statusMsg" class="small"></div>
+      </div>
+    </section>
+
+    <section id="leaderboardCard" class="card" style="display:none;margin-top:16px">
+      <strong>Leaderboard (by total score)</strong>
+      <div style="overflow:auto;margin-top:8px">
+        <table id="leaderboardTable">
+          <thead><tr><th>Rank</th><th>Player</th><th>Score</th><th>Games</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="small">Prototype by Parabox • Replace firebaseConfig.appId with your app id in production</footer>
+  </div>
+
+  <script type="module">
+    // Firebase modular SDK
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js';
+    import { getFirestore, collection, addDoc, doc, setDoc, query, orderBy, limit, onSnapshot, serverTimestamp, increment } from 'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js';
+
+    // ---------- FIREBASE CONFIG: filled with your project values ----------
+    const firebaseConfig = {
+      apiKey: "AIzaSyDbaUu68-z8HjYmez1gPMDe7hxjkorqAHc",
+      authDomain: "muzzle-game.firebaseapp.com",
+      projectId: "muzzle-game",
+      storageBucket: "muzzle-game.appspot.com",
+      messagingSenderId: "365536064053",
+      appId: "1:365536064053:web:068dd7f51e67da50e9b77c" // replace with exact appId from Firebase console (recommended)
+    };
+    // ---------------------------------------------------------------------
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // DOM refs
+    const signInBtn = document.getElementById('signInBtn');
+    const signOutBtn = document.getElementById('signOutBtn');
+    const userDisplay = document.getElementById('userDisplay');
+    const gameCard = document.getElementById('gameCard');
+    const loginCard = document.getElementById('loginCard');
+    const leaderboardCard = document.getElementById('leaderboardCard');
+    const gridEl = document.getElementById('grid');
+    const guessesLeftEl = document.getElementById('guessesLeft');
+    const newGameBtn = document.getElementById('newGameBtn');
+    const hintBtn = document.getElementById('hintBtn');
+    const statusMsg = document.getElementById('statusMsg');
+    const leaderboardTableBody = document.querySelector('#leaderboardTable tbody');
+
+    // Replace this WORDS array with your medical 5-letter words
+    const WORDS = ["heart","liver","renal","ulcer","spine","skull","cough","fever","palsy","viral","septic","gland","lymph","optic","aorta"].map(w=>w.toLowerCase()).filter(w=>w.length===5);
+
+    const HINTS = {
+      "heart":"Organ that pumps blood",
+      "liver":"Large organ that detoxifies",
+      "renal":"Relating to the kidney",
+      "ulcer":"A lesion on a mucous membrane",
+      "spine":"Column of vertebrae",
+      "cough":"Forceful expulsion of air from lungs",
+      "fever":"Elevated body temperature",
+      "palsy":"Condition causing muscle weakness",
+      "viral":"Caused by a virus",
+      "septic":"Related to infection or sepsis"
+    };
+
+    let solution = '';
+    let currentRow = 0;
+    let currentCol = 0;
+    let hintUsed = false;
+    let signedInUser = null;
+
+    const KEY_LAYOUT = ["qwertyuiop","asdfghjkl","zxcvbnm"];
+
+    function setupGrid(){
+      gridEl.innerHTML = '';
+      for(let r=0;r<6;r++){
+        const row = document.createElement('div'); row.className='row';
+        for(let c=0;c<5;c++){
+          const cell = document.createElement('div'); cell.className='cell'; cell.setAttribute('data-row',r); cell.setAttribute('data-col',c);
+          row.appendChild(cell);
+        }
+        gridEl.appendChild(row);
+      }
+    }
+
+    function setupKeyboard(){
+      document.getElementById('row1').innerHTML='';
+      document.getElementById('row2').innerHTML='';
+      document.getElementById('row3').innerHTML='';
+      KEY_LAYOUT.forEach((row,i)=>{
+        const target = document.getElementById('row'+(i+1));
+        row.split('').forEach(kch=>{
+          const k = document.createElement('div'); k.className='key'; k.textContent=kch; k.onclick=()=>handleKey(kch);
+          target.appendChild(k);
+        });
+      });
+      const back = document.createElement('div'); back.className='key small'; back.textContent='⌫'; back.onclick=()=>handleKey('Backspace');
+      const enter = document.createElement('div'); enter.className='key small'; enter.textContent='Enter'; enter.onclick=()=>handleKey('Enter');
+      document.getElementById('row3').appendChild(back);
+      document.getElementById('row3').appendChild(enter);
+    }
+
+    function startNewGame(){
+      solution = WORDS[Math.floor(Math.random()*WORDS.length)];
+      currentRow = 0; currentCol = 0; hintUsed=false; statusMsg.textContent='';
+      guessesLeftEl.textContent = 6 - currentRow;
+      setupGrid(); setupKeyboard(); updateKeyboardColours();
+      document.querySelectorAll('.cell').forEach(cell=>{cell.textContent=''; cell.classList.remove('green','yellow','red','filled')});
+      hintBtn.disabled = false;
+      console.log('solution:',solution); // remove in production
+    }
+
+    function updateKeyboardColours(){ /* no-op placeholder */ }
+
+    function handleKey(key){
+      if(currentRow>5) return;
+      if(key === 'Backspace'){
+        if(currentCol>0){
+          currentCol--;
+          const cell = document.querySelector(`.cell[data-row='${currentRow}'][data-col='${currentCol}']`);
+          if(cell){ cell.textContent=''; cell.classList.remove('filled'); }
+        }
+        return;
+      }
+      if(key === 'Enter'){ submitGuess(); return; }
+      if(/^[a-z]$/.test(key)){
+        if(currentCol<5){
+          const cell = document.querySelector(`.cell[data-row='${currentRow}'][data-col='${currentCol}']`);
+          if(cell){ cell.textContent = key.toUpperCase(); cell.classList.add('filled'); }
+          currentCol++;
+        }
+      }
+    }
+
+    function submitGuess(){
+      const letters = [];
+      for(let c=0;c<5;c++){
+        const cell = document.querySelector(`.cell[data-row='${currentRow}'][data-col='${c}']`);
+        letters.push(cell.textContent.toLowerCase() || '');
+      }
+      const guess = letters.join('');
+      if(guess.length !== 5){ statusMsg.textContent='Enter a 5-letter word'; return; }
+      if(!WORDS.includes(guess)){ statusMsg.textContent = 'Word not in dictionary (prototype).'; return; }
+
+      const solutionArr = solution.split('');
+      const guessArr = guess.split('');
+      const result = Array(5).fill('red');
+      const solCounts = {};
+      solutionArr.forEach(ch=>{ solCounts[ch] = (solCounts[ch]||0) + 1 });
+      for(let i=0;i<5;i++){ if(guessArr[i] === solutionArr[i]){ result[i] = 'green'; solCounts[guessArr[i]]--; } }
+      for(let i=0;i<5;i++){
+        if(result[i] === 'green') continue;
+        const ch = guessArr[i];
+        if(solCounts[ch] && solCounts[ch] > 0){ result[i] = 'yellow'; solCounts[ch]--; }
+      }
+
+      for(let i=0;i<5;i++){
+        const cell = document.querySelector(`.cell[data-row='${currentRow}'][data-col='${i}']`);
+        if(cell){ cell.classList.add(result[i]); }
+        const keys = Array.from(document.querySelectorAll('.key')).filter(k=>k.textContent.toLowerCase()===guessArr[i]);
+        keys.forEach(kk=>{
+          if(kk.classList.contains('green')) return;
+          if(result[i] === 'green'){ kk.classList.remove('yellow','red'); kk.classList.add('green'); }
+          else if(result[i] === 'yellow' && !kk.classList.contains('green')){ kk.classList.remove('red'); kk.classList.add('yellow'); }
+          else if(result[i] === 'red' && !kk.classList.contains('green') && !kk.classList.contains('yellow')){ kk.classList.add('red'); }
+        });
+      }
+
+      currentRow++; currentCol = 0; guessesLeftEl.textContent = 6 - currentRow;
+
+      if(guess === solution){
+        const attempts = currentRow;
+        const baseScore = 100 * (7 - attempts);
+        const finalScore = Math.round(baseScore * (hintUsed ? 0.75 : 1));
+        statusMsg.textContent = `Correct! You scored ${finalScore} points.`;
+        postScore(finalScore, attempts, hintUsed);
+        currentRow = 6; // freeze
+        return;
+      }
+
+      if(currentRow >= 6){
+        statusMsg.textContent = `Out of guesses — the word was "${solution.toUpperCase()}". Score: 0`;
+        postScore(0, 6, hintUsed);
+        currentRow = 6;
+        return;
+      }
+    }
+
+    function showHint(){
+      if(hintUsed) return;
+      hintUsed = true; hintBtn.disabled = true;
+      const hintText = HINTS[solution] || (`First letter: ${solution[0].toUpperCase()}`);
+      statusMsg.textContent = `Hint: ${hintText} (score penalty applied)`;
+    }
+
+    async function postScore(score, attempts, hintUsedFlag){
+      if(!signedInUser) return;
+      try{
+        await addDoc(collection(db,'scores'),{
+          userId: signedInUser.uid,
+          name: signedInUser.displayName || signedInUser.email,
+          score: score,
+          attempts: attempts,
+          hintUsed: hintUsedFlag,
+          createdAt: serverTimestamp()
+        });
+        const userRef = doc(db,'users', signedInUser.uid);
+        await setDoc(userRef, {
+          name: signedInUser.displayName || signedInUser.email,
+          totalScore: increment(score),
+          gamesPlayed: increment(1)
+        }, { merge:true });
+      }catch(err){
+        console.error('postScore error',err); statusMsg.textContent = 'Error saving score (see console).';
+      }
+    }
+
+    function startLeaderboardListener(){
+      const q = query(collection(db,'users'), orderBy('totalScore','desc'), limit(50));
+      onSnapshot(q, snap => {
+        leaderboardTableBody.innerHTML = '';
+        let rank = 1;
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${rank}</td><td>${escapeHtml(data.name || 'Anonymous')}</td><td>${data.totalScore || 0}</td><td>${data.gamesPlayed || 0}</td>`;
+          leaderboardTableBody.appendChild(tr);
+          rank++;
+        });
+      });
+    }
+
+    function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    // Auth
+    signInBtn.onclick = async ()=>{
+      const provider = new GoogleAuthProvider();
+      try{ await signInWithPopup(auth, provider); }catch(err){ console.error(err); alert('Sign-in failed: '+err.message); }
+    };
+    signOutBtn.onclick = async ()=>{ await signOut(auth); };
+
+    onAuthStateChanged(auth, user => {
+      if(user){
+        signedInUser = user;
+        userDisplay.textContent = user.displayName || user.email;
+        signInBtn.style.display='none'; signOutBtn.style.display='inline-block';
+        loginCard.style.display='none'; gameCard.style.display='block'; leaderboardCard.style.display='block';
+        startNewGame(); startLeaderboardListener();
+      }else{
+        signedInUser = null;
+        userDisplay.textContent = 'Not signed in';
+        signInBtn.style.display='inline-block'; signOutBtn.style.display='none';
+        loginCard.style.display='block'; gameCard.style.display='none'; leaderboardCard.style.display='none';
+      }
+    });
+
+    window.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter' || e.key === 'Backspace' || /^[a-zA-Z]$/.test(e.key)){
+        handleKey(e.key === 'Backspace' ? 'Backspace' : (e.key === 'Enter' ? 'Enter' : e.key.toLowerCase()));
+      }
+    });
+
+    newGameBtn.onclick = ()=> startNewGame();
+    hintBtn.onclick = ()=> showHint();
+
+    setupGrid(); setupKeyboard();
+    window.Muzzle = { startNewGame };
+  </script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // Save score example
+  async function saveScore(player, score, attempts) {
+    try {
+      await addDoc(collection(db, "scores"), {
+        player,
+        score,
+        attempts,
+        timestamp: Date.now()
+      });
+      console.log("Score saved");
+    } catch (e) {
+      console.error("Error saving score:", e);
+    }
+  }
+
+  // Fetch top scores example
+  async function fetchTopScores(limitCount = 10) {
+    const scoresRef = collection(db, "scores");
+    const q = query(scoresRef, orderBy("score", "desc"), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    const scores = [];
+    querySnapshot.forEach((doc) => {
+      scores.push(doc.data());
+    });
+    console.log("Top Scores:", scores);
+    return scores;
+  }
+
+  // Export or use these functions in your game logic as needed
+
+</script>
+
+</body>
+</html>
